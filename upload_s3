@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+
+import os, zlib, hashlib, sys, gzip
+from mimetypes import types_map
+from tempfile import mkstemp
+from boto.s3 import Connection
+
+# Define Parameters
+compress_extensions = ['css','html','htm','js','txt']
+destination_bucket = ''
+key = ''
+seckey = ''
+
+# Checks hashes for files already present to see if they match local files
+check_hashes = False
+
+# Open Connection
+
+def setup_connection(key,seckey):
+	connection = Connection(key,seckey)
+	bucket = connection.get_bucket(destination_bucket)
+	return bucket
+
+
+# Main Local Tree Walking & Upload Function
+def upload_files():
+	stat = Status()
+	bucket = setup_connection(key,seckey)
+	for root, dirs, files in os.walk('.'):
+		for file in files:
+			curfile = LocalFile(os.path.normpath(os.path.join(root,file)))
+			try:
+				curfile.upload_contents(bucket,stat)
+			except:
+				# Allow one re-attempt per upload...
+				print "Unexpected error, retrying..."
+				bucket = setup_connection(key,seckey)
+				curfile.upload_contents(bucket,stat)
+
+# Class to handle tracking current status
+class Status:
+	def __init__(self):
+		self.filecount = 0
+		self.lastuploaded = 0
+	
+	def incr(self,localfile,upload=True):
+		self.filecount += 1
+		if upload == False:
+			message = 'Checked: %d'%self.filecount
+			sys.stdout.write('\r' + message)
+			sys.stdout.flush()
+			self.lastuploaded = True
+		else:
+			if self.lastuploaded == False:
+				sys.stdout.write('\n')
+				sys.stdout.flush()
+			print '[%s] %s'%(localfile.uptype,localfile.destpath)
+			self.lastuploaded = True
+
+# Class for file object we're working with
+class LocalFile:
+	def __init__(self,destpath):
+		self.destpath = destpath
+		self.uptype = ' '
+		self.headers = {}
+		self.metadata = {}
+		self.contents = None
+		try:
+			self.headers['Content-Type'] = types_map[os.path.splitext(self.destpath)[1]]
+		except KeyError:
+			self.headers['Content-Type'] = 'application/octet-stream'
+
+		if os.path.splitext(self.destpath)[1][1:] in compress_extensions:
+			self.compressible = True
+		else:
+			self.compressible = False
+	
+	def get_contents(self):
+		"""
+		Load file contents into memory and generate SHA-1
+		"""
+		fh = open(self.destpath)
+		self.contents = fh.read()
+		self.sha1hash = hashlib.sha1(self.contents).hexdigest()
+		fh.close()
+
+	def gzip_contents(self):
+		"""
+		Gzip file contents
+		"""
+		import StringIO, gzip
+		sobj = StringIO.StringIO()
+		zipfile = gzip.GzipFile(fileobj=sobj,mode='w',compresslevel=zlib.Z_BEST_COMPRESSION)
+		zipfile.write(self.contents)
+		zipfile.close()
+		self.contents = sobj.getvalue()
+		self.headers['Content-Encoding'] = 'gzip'
+		self.uptype = 'z'
+	
+	def upload_contents(self,bucket,stat):
+		"""
+		Upload file to S3
+		"""
+		uploadable = 0
+		regzip = False
+		dest_key = bucket.lookup(self.destpath)
+		
+		# Make new key if file doesn't exist
+		if dest_key == None:
+			dest_key = bucket.new_key(self.destpath)
+			uploadable += 1
+		
+		if (dest_key.content_encoding == None) & self.compressible:
+			uploadable += 1
+			regzip = True
+
+		if check_hashes:
+			uploadable += 1
+
+		# if we get at least one reason to upload, give it a go
+		if uploadable:
+			# Get file contents if we don't have it
+			if self.contents == None:
+				self.get_contents()
+			
+			# final check... if sha-1 doesn't match, upload!
+			if (dest_key.get_metadata('sha1-hash') != self.sha1hash) | regzip:
+				if self.compressible:
+					self.gzip_contents()
+				else:
+					self.uptype = 'r'
+				dest_key.set_metadata('sha1-hash',self.sha1hash)
+				dest_key.set_contents_from_string(self.contents,headers=self.headers)
+				stat.incr(self)
+
+				# make our files public readable
+				dest_key.set_acl('public-read')
+			else:
+				stat.incr(self,upload=False)
+		else:
+			stat.incr(self,upload=False)
+
+
+
+if __name__ == '__main__':
+    # Import Psyco if available
+	try:
+		import psyco
+		psyco.full()
+	except ImportError:
+		pass
+	upload_files()
+
