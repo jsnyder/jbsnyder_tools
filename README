@@ -6,4 +6,3 @@ tools out there, but does something many of them don't: gzips files of certain
 extensions and sets content encoding.  It also will re-upload files that could
 be gzipped that haven't before, while ignoring already gzipped files or ones
 not included in the list to be compressed.
-Note: Currently requires a little patch for boto to work (boto_patch.txt).
