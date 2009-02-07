@@ -6,3 +6,9 @@ tools out there, but does something many of them don't: gzips files of certain
 extensions and sets content encoding.  It also will re-upload files that could
 be gzipped that haven't before, while ignoring already gzipped files or ones
 not included in the list to be compressed.
+
+accmouse:
+This script allows one to control mouse movement on a Mac OS X machine using an
+accelerometer (LIS2L02AS4) connected to an Arduino running Firmata. movemouse.m
+must be compiled in order to control mouse movements. Also, pyduino is needed in
+order to talk to Firmata: http://code.google.com/p/pyduino/
