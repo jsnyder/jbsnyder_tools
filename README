@@ -12,3 +12,7 @@ This script allows one to control mouse movement on a Mac OS X machine using an
 accelerometer (LIS2L02AS4) connected to an Arduino running Firmata. movemouse.m
 must be compiled in order to control mouse movements. Also, pyduino is needed in
 order to talk to Firmata: http://code.google.com/p/pyduino/
+
+plotanalog:
+This script plots live data from analog inputs on an Arduino with Firmata installed.
+Pyduino is required to talk to Firmata: http://code.google.com/p/pyduino/

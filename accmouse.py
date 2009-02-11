@@ -69,8 +69,8 @@ def get_analog_data(xq,yq):
         lastx, lasty = curx, cury
         
         # Generate next position with sampled data
-        curx = 200*(adc_get_sample(a,0)-0.5)+lastx
-        cury = -200*(adc_get_sample(a,1)-0.5)+lasty
+        curx = 200*(adc_get_sample(a,0)-0.479)+lastx
+        cury = -200*(adc_get_sample(a,1)-0.512)+lasty
         
         # Clip Range
         curx = range_check(curx,0,1280)
