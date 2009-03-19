@@ -1,71 +1,85 @@
 #!/usr/bin/env python
-# Copyright (c) 2009 James Snyder
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# -*- coding: utf-8 -*-
 
-import os, zlib, hashlib, sys, gzip
+"""
+upload_s3 synchronizes files in the current directory to S3
+
+
+Copyright (c) 2009 James Snyder
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
+import os
+import zlib
+import hashlib
+import sys
+import gzip
+import StringIO
 from mimetypes import types_map
 from tempfile import mkstemp
 from boto.s3 import Connection
 
-# Define Parameters
-compress_extensions = ['css','html','htm','js','txt']
-destination_bucket = ''
-key = ''
-seckey = ''
+COMPRESS_EXTENSIONS = ['css', 'html', 'htm', 'js', 'txt']
+CHECK_HASHES = False
 
-# Checks hashes for files already present to see if they match local files
-check_hashes = False
+DESTINATION_BUCKET = ''
+S3_KEY = ''
+S3_SECKEY = ''
 
-# Open Connection
 
-def setup_connection(key,seckey):
-    connection = Connection(key,seckey)
-    bucket = connection.get_bucket(destination_bucket)
+def setup_connection():
+    connection = Connection(S3_KEY, S3_SECKEY)
+    bucket = connection.get_bucket(DESTINATION_BUCKET)
     return bucket
 
 
-# Main Local Tree Walking & Upload Function
 def upload_files():
     stat = Status()
-    bucket = setup_connection(key,seckey)
-    for root, dirs, files in os.walk('.'):
-        for file in files:
-            curfile = LocalFile(os.path.normpath(os.path.join(root,file)))
+    bucket = setup_connection()
+    for (root, dirs, files) in os.walk('.'):
+        for sfile in files:
+            curfile = LocalFile(os.path.normpath(os.path.join(root,
+                                sfile)))
             try:
-                curfile.upload_contents(bucket,stat)
+                curfile.upload_contents(bucket, stat)
             except:
-                # Allow one re-attempt per upload...
-                print "Unexpected error, retrying..."
-                bucket = setup_connection(key,seckey)
-                curfile.upload_contents(bucket,stat)
 
-# Class to handle tracking current status
+                print 'Unexpected error, retrying...'
+                bucket = setup_connection(S3_KEY, S3_SECKEY)
+                curfile.upload_contents(bucket, stat)
+
+
 class Status:
+
+    """
+    Keep track of status
+    """
+
     def __init__(self):
         self.filecount = 0
         self.lastuploaded = 0
-    
-    def incr(self,localfile,upload=True):
+
+    def incr(self, localfile, upload=True):
         self.filecount += 1
         if upload == False:
-            message = 'Checked: %d'%self.filecount
+            message = 'Checked: %d' % self.filecount
             sys.stdout.write('\r' + message)
             sys.stdout.flush()
             self.lastuploaded = True
@@ -73,100 +87,106 @@ class Status:
             if self.lastuploaded == False:
                 sys.stdout.write('\n')
                 sys.stdout.flush()
-            print '[%s] %s'%(localfile.uptype,localfile.destpath)
+            print '[%s] %s' % (localfile.uptype, localfile.destpath)
             self.lastuploaded = True
 
-# Class for file object we're working with
+
 class LocalFile:
-    def __init__(self,destpath):
+
+    """
+    Object used to handle and upload local files
+    """
+
+    def __init__(self, destpath):
         self.destpath = destpath
         self.uptype = ' '
         self.headers = {}
         self.metadata = {}
         self.contents = None
         try:
-            self.headers['Content-Type'] = types_map[os.path.splitext(self.destpath)[1]]
+            self.headers['Content-Type'] = \
+                types_map[os.path.splitext(self.destpath)[1]]
         except KeyError:
             self.headers['Content-Type'] = 'application/octet-stream'
 
-        if os.path.splitext(self.destpath)[1][1:] in compress_extensions:
+        if (os.path.splitext(self.destpath)[1])[1:]\
+             in COMPRESS_EXTENSIONS:
             self.compressible = True
         else:
             self.compressible = False
-    
+
     def get_contents(self):
         """
         Load file contents into memory and generate SHA-1
         """
-        fh = open(self.destpath)
-        self.contents = fh.read()
+
+        fhandle = open(self.destpath)
+        self.contents = fhandle.read()
         self.sha1hash = hashlib.sha1(self.contents).hexdigest()
-        fh.close()
+        fhandle.close()
 
     def gzip_contents(self):
         """
         Gzip file contents
         """
-        import StringIO, gzip
+
         sobj = StringIO.StringIO()
-        zipfile = gzip.GzipFile(fileobj=sobj,mode='w',compresslevel=zlib.Z_BEST_COMPRESSION)
+        zipfile = gzip.GzipFile(fileobj=sobj, mode='w',
+                                compresslevel=zlib.Z_BEST_COMPRESSION)
         zipfile.write(self.contents)
         zipfile.close()
         self.contents = sobj.getvalue()
         self.headers['Content-Encoding'] = 'gzip'
         self.uptype = 'z'
-    
-    def upload_contents(self,bucket,stat):
+
+    def upload_contents(self, bucket, stat):
         """
         Upload file to S3
         """
+
         uploadable = 0
         regzip = False
         dest_key = bucket.lookup(self.destpath)
-        
-        # Make new key if file doesn't exist
+
         if dest_key == None:
             dest_key = bucket.new_key(self.destpath)
             uploadable += 1
-        
+
         if (dest_key.content_encoding == None) & self.compressible:
             uploadable += 1
             regzip = True
 
-        if check_hashes:
+        if CHECK_HASHES:
             uploadable += 1
 
-        # if we get at least one reason to upload, give it a go
         if uploadable:
-            # Get file contents if we don't have it
+
             if self.contents == None:
                 self.get_contents()
-            
-            # final check... if sha-1 doesn't match, upload!
-            if (dest_key.get_metadata('sha1-hash') != self.sha1hash) | regzip:
+
+            if (dest_key.get_metadata('sha1-hash') != self.sha1hash)\
+                 | regzip:
                 if self.compressible:
                     self.gzip_contents()
                 else:
                     self.uptype = 'r'
-                dest_key.set_metadata('sha1-hash',self.sha1hash)
-                dest_key.set_contents_from_string(self.contents,headers=self.headers)
+                dest_key.set_metadata('sha1-hash', self.sha1hash)
+                dest_key.set_contents_from_string(self.contents,
+                        headers=self.headers)
                 stat.incr(self)
 
-                # make our files public readable
                 dest_key.set_acl('public-read')
             else:
-                stat.incr(self,upload=False)
+                stat.incr(self, upload=False)
         else:
-            stat.incr(self,upload=False)
-
+            stat.incr(self, upload=False)
 
 
 if __name__ == '__main__':
-    # Import Psyco if available
+
     try:
         import psyco
         psyco.full()
     except ImportError:
         pass
     upload_files()
-
